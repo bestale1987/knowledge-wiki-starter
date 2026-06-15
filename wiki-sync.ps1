@@ -27,8 +27,12 @@ if (-not $claude) {
 Set-Location $root
 "[$(Get-Date)] 동기화 시작 (CLI: $claude)" | Out-File $log -Encoding utf8
 
-# 1) (GitHub 연동 시) 원격 변경 받기 — 실패해도 로컬 동기화는 계속. 미연동이면 무해하게 통과.
+# 1) (GitHub 연동 시) pull 전에 미커밋 로컬 변경을 먼저 정리(이게 없으면 unstaged changes로 pull이 막힘) 후 원격 변경 받기. 미연동이면 무해하게 통과.
 if (Test-Path (Join-Path $root ".git")) {
+  git add -A 2>&1 | Out-File $log -Append -Encoding utf8
+  if (git diff --cached --name-only) {
+    git commit -m "wiki-sync: pre-sync 로컬 변경 정리" --quiet 2>&1 | Out-File $log -Append -Encoding utf8
+  }
   git pull --rebase origin main 2>&1 | Out-File $log -Append -Encoding utf8
 }
 
@@ -37,17 +41,18 @@ $prompt = Get-Content -Raw (Join-Path $root "Research-Vault\_wiki\SYNC-PROMPT.md
 & $claude -p $prompt --permission-mode acceptEdits 2>&1 | Out-File $log -Append -Encoding utf8
 "[$(Get-Date)] 위키 동기화 종료 (exit=$LASTEXITCODE)" | Out-File $log -Append -Encoding utf8
 
-# 3) (GitHub 연동 시) 변경분 커밋·푸시
+# 3) (GitHub 연동 시) 동기화 변경을 커밋하고, pre-sync 커밋 포함 밀린 커밋을 모두 푸시
 if (Test-Path (Join-Path $root ".git")) {
   git add -A 2>&1 | Out-File $log -Append -Encoding utf8
-  $pending = git diff --cached --name-only
-  if ($pending) {
+  if (git diff --cached --name-only) {
     $stamp = Get-Date -Format "yyyy-MM-dd HH:mm"
     git commit -m "wiki-sync: $stamp 자동 동기화" --quiet 2>&1 | Out-File $log -Append -Encoding utf8
+  }
+  if (git log origin/main..main --oneline 2>$null) {
     git push origin main 2>&1 | Out-File $log -Append -Encoding utf8
     "[$(Get-Date)] git push 완료" | Out-File $log -Append -Encoding utf8
   } else {
-    "[$(Get-Date)] 변경 없음 — 커밋 생략" | Out-File $log -Append -Encoding utf8
+    "[$(Get-Date)] 푸시할 변경 없음" | Out-File $log -Append -Encoding utf8
   }
 }
 
