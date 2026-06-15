@@ -1,0 +1,15 @@
+# 원문 PDF는 로컬에만 보관 (저장소는 지식층 텍스트만)
+*.pdf
+_pdfs/
+PDFs/
+
+# 예외: Project-Knowledge 지식저장소의 공개판 PDF는 포함
+!Research-Vault/Project-Knowledge/**/*.pdf
+
+# 로컬 전용
+Research-Vault/_downloads/
+Research-Vault/_wiki/sync-logs/
+
+# 에디터·임시
+.obsidian/
+*.bak
