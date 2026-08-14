@@ -1,6 +1,6 @@
 # SETUP — 템플릿 초기화 지침 (AI 수행용)
 
-> 사용자가 "이 템플릿을 초기화/셋업해줘"라고 하면, Claude는 이 문서를 읽고 아래를 순서대로 수행한다. 각 단계에서 사용자에게 필요한 값을 묻고, 되돌리기 어려운 작업(저장소 생성·스케줄러 등록) 전에는 확인한다.
+> 사용자가 "이 템플릿을 초기화/셋업해줘"라고 하면, 에이전트는 이 문서를 읽고 아래를 순서대로 수행한다. 각 단계에서 사용자에게 필요한 값을 묻고, 되돌리기 어려운 작업(저장소 생성·스케줄러 등록) 전에는 확인한다.
 
 ## 0. 현재 위치 확인
 - 이 저장소가 클론된 폴더의 **절대경로**를 확인한다. 이것이 앞으로의 `VAULT_ROOT`다.
@@ -44,9 +44,11 @@ Register-ScheduledTask -TaskName "Knowledge-Wiki-Sync" -Action $action -Trigger 
 - 비공개 설정을 `gh repo view --json visibility`로 검증해 사용자에게 보고.
 - 협업: `gh repo add-collaborator` 또는 저장소 Settings → Collaborators로 특정인 초대.
 
-## 6. (선택) 글로벌 마이그레이션 명령어
-- 사용자가 "다른 폴더에서도 마이그레이션을 쓰고 싶다"고 하면, `.claude/commands/migrate-knowledge.md`를 사용자 레벨(`~/.claude/commands/`)로 복사하고 그 안의 `VAULT` 경로를 `<VAULT_ROOT>` 절대경로로 바꾼다.
+## 6. (선택) 글로벌 마이그레이션 스킬
+- Codex에서는 `install-codex-skill.ps1`로 `migrate-knowledge`를 사용자 스킬 폴더에 설치한다.
+- `~/.codex/knowledge-wiki.json`에 `{ "vault_root": "<VAULT_ROOT>" }`를 저장한다. 이 파일은 기기별 설정이므로 Git에 커밋하지 않는다.
+- Claude 호환이 필요하면 `.claude/commands/migrate-knowledge.md`를 사용자 명령 폴더에 복사하되, 자동 원본 이동이나 `git add -A`를 추가하지 않는다.
 
 ## 7. 첫 노트 안내
-- 사용자에게: 이제 각 볼트 폴더에 `YYMMDD-주제.md` 형식으로 노트를 쌓고, 질문은 이 폴더에서 연 세션에서 하면 위키가 우선 참조된다고 안내. 외부 산출물은 `/migrate-knowledge <폴더>`로 통합.
+- 사용자에게: 이제 각 볼트 폴더에 `YYMMDD-주제.md` 형식으로 노트를 쌓고, 질문은 이 폴더에서 연 세션에서 하면 위키가 우선 참조된다고 안내. 외부 산출물은 Codex의 `$migrate-knowledge` 또는 Claude의 `/migrate-knowledge`로 통합한다.
 - 마지막으로 이 `SETUP.md`는 삭제하거나 그대로 둬도 무방하다고 안내.

@@ -16,11 +16,24 @@
 
 다운로드한 실제 데이터셋은 `_downloads/<source-slug>/`에 저장한다.
 
+### 1.1 지식 그래프 레이블
+
+새 합성 문서에는 통제 어휘를 사용한다. `node_type`은 `SourceNote`, `Concept`, `Claim`, `QA`, `DataSource`, `Entity` 중 하나다. 관계는 `SUPPORTS`, `CONTRADICTS`, `QUALIFIES`, `EXTENDS`, `SUPERSEDES`, `DEPENDS_ON`을 기본으로 하고, 필요할 때만 `CITES`, `ABOUT`, `USES_DATA`를 쓴다.
+
+### 1.2 불변 소스와 파생 지식 lifecycle
+
+- 날짜 원본 노트와 PDF는 불변이며 삭제·덮어쓰기·대체하지 않는다.
+- lifecycle은 개념·주장·Q&A 같은 파생 문서에만 적용한다.
+- `status`는 `active`, `superseded`, `withdrawn`, `invalidated`, `duplicate` 중 하나다.
+- 비활성 파생 문서에는 `superseded_by` 또는 후속 링크, `replacement_reason`, `reviewed_at`을 기록한다. 새 문서에는 필요할 때 `supersedes`를 기록한다.
+- 검색은 기본적으로 `active`를 사용하고 비활성 문서는 후속 링크를 따라간다.
+- 더 강한 후속 답변이 나와도 원본 노트를 지우지 않고, 앞선 합성 답변만 비활성화하며 관련 링크를 수선한다.
+
 ## 2. 개념 페이지 (`_wiki/concepts/<slug>.md`)
 
 - 단위: **주제 개념** (예: a-topic-subtheme). 기관·저자 단위 페이지는 만들지 않는다.
 - 총 15~25개 수준으로 유지. 새 개념 추가는 기존 페이지로 흡수 불가능할 때만.
-- 필수 frontmatter: `type: wiki-concept`, `slug`, `updated` (YYYY-MM-DD), `sources_count`, `vaults`
+- 신규 또는 다음 대규모 갱신부터 필수 frontmatter: `type: wiki-concept`, `node_type: Concept`, `status: active`, `slug`, `updated` (YYYY-MM-DD), `sources_count`, `vaults`
 - 필수 섹션:
   1. **핵심 결론 (Living Summary)** — 현재 시점의 종합 판단 3~7문장. 쉬운 언어
   2. **쟁점별 정리** — 소스 간 **합의 ✅ / 대립 ⚔️ / 단일소스 ⚠️** 를 명시. 모든 주장에 `[[원본노트]]` 링크
@@ -34,7 +47,7 @@
 
 ## 3. Q&A 적립 (`_wiki/qa/`)
 
-여러 노트를 종합해 답했고 그 답이 재사용 가치가 있으면 `qa/YYMMDD-질문-슬러그.md`로 저장하고 관련 개념 페이지의 미해결 질문/쟁점에 반영한다. 단순 조회성 답변은 저장하지 않는다.
+여러 노트를 종합해 답했고 그 답이 재사용 가치가 있으면 `qa/YYMMDD-질문-슬러그.md`로 저장하고 관련 개념 페이지의 미해결 질문/쟁점에 반영한다. Q&A에는 `node_type: QA`, `status: active`, `updated`를 둔다. 단순 조회성 답변은 저장하지 않는다. 더 강한 후속 답변은 이전 Q&A를 삭제하지 않고 `superseded` 처리한다.
 
 ## 4. 데이터 레지스트리 (`_data-registry/`)
 
@@ -53,6 +66,8 @@
 - 개념 페이지 `updated`가 오래됐는데 그 사이 관련 노트가 추가됨 → 갱신 누락
 - 어느 개념 페이지에도 연결되지 않은 고아 노트 탐지
 - ⚔️ 대립 중 후속 소스로 해소된 것 정리
+- 비활성 파생 문서에 후속 링크가 있는지 검사
+- 통제 어휘 밖의 레이블·관계·상태가 생겼는지 검사
 - 레지스트리 URL 생존 확인
 
 ## 6. 일일 자동 동기화
@@ -67,4 +82,6 @@
 - 원본 노트 수정 (위키 작업 중)
 - 출처 링크 없는 주장 추가
 - 모순 발견 시 한쪽 삭제 (양쪽 보존 + ⚔️ 표시가 원칙)
+- 날짜 원본 노트에 lifecycle을 적용해 대체하거나 삭제
+- 통제 어휘와 의미가 겹치는 임의 레이블·관계 신설
 - 개념 페이지 무분별한 신설 (25개 초과 시 통합 먼저 검토)

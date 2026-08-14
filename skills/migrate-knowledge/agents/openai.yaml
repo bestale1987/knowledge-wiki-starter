@@ -1,0 +1,4 @@
+interface:
+  display_name: "Migrate Knowledge"
+  short_description: "외부 리서치 산출물을 불변 원본과 lifecycle을 지키며 위키로 통합"
+  default_prompt: "$migrate-knowledge를 사용해 이 폴더의 최종 지식 산출물을 지정 위키로 안전하게 복사·통합하세요."

@@ -1,60 +1,123 @@
-# 지식위키 일일 동기화 (Windows 작업 스케줄러에서 매일 실행)
-# 등록 작업명 예: Knowledge-Wiki-Sync
-# 경로 하드코딩 없음 — 스크립트 자기 위치($PSScriptRoot)를 저장소 루트로 사용한다.
-$ErrorActionPreference = 'Continue'
-$root = $PSScriptRoot
-$logDir = Join-Path $root "Research-Vault\_wiki\sync-logs"
-New-Item -ItemType Directory -Force $logDir | Out-Null
-$log = Join-Path $logDir ("sync-" + (Get-Date -Format "yyMMdd-HHmm") + ".log")
+[CmdletBinding()]
+param(
+    [switch]$DryRun,
+    [switch]$SkipPush
+)
 
-# claude CLI 탐색: PATH 우선, 없으면 VSCode 확장 번들 중 최신 버전
-$claude = $null
-$cmd = Get-Command claude -ErrorAction SilentlyContinue
-if ($cmd) { $claude = $cmd.Source }
-if (-not $claude) {
-  $ext = Get-ChildItem "$env:USERPROFILE\.vscode\extensions" -Directory -Filter "anthropic.claude-code-*" -ErrorAction SilentlyContinue |
-    Sort-Object Name -Descending | Select-Object -First 1
-  if ($ext) {
-    $candidate = Join-Path $ext.FullName "resources\native-binary\claude.exe"
-    if (Test-Path $candidate) { $claude = $candidate }
-  }
-}
-if (-not $claude) {
-  "[$(Get-Date)] claude CLI를 찾지 못해 동기화를 건너뜀" | Out-File $log -Encoding utf8
-  exit 1
-}
+# Generic fail-closed wiki sync runner for Codex on Windows.
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-Set-Location $root
-"[$(Get-Date)] 동기화 시작 (CLI: $claude)" | Out-File $log -Encoding utf8
+$root = [System.IO.Path]::GetFullPath($PSScriptRoot)
+$promptPath = Join-Path $root 'Research-Vault\_wiki\SYNC-PROMPT.md'
+$logDir = Join-Path $root 'Research-Vault\_wiki\sync-logs'
+$lockPath = Join-Path ([System.IO.Path]::GetTempPath()) 'knowledge-wiki-sync.lock'
+$lockStream = $null
+$exitCode = 0
 
-# 1) (GitHub 연동 시) pull 전에 미커밋 로컬 변경을 먼저 정리(이게 없으면 unstaged changes로 pull이 막힘) 후 원격 변경 받기. 미연동이면 무해하게 통과.
-if (Test-Path (Join-Path $root ".git")) {
-  git add -A 2>&1 | Out-File $log -Append -Encoding utf8
-  if (git diff --cached --name-only) {
-    git commit -m "wiki-sync: pre-sync 로컬 변경 정리" --quiet 2>&1 | Out-File $log -Append -Encoding utf8
-  }
-  git pull --rebase origin main 2>&1 | Out-File $log -Append -Encoding utf8
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$log = Join-Path $logDir ('sync-' + (Get-Date -Format 'yyMMdd-HHmmss') + '.log')
+
+function Write-Log([string]$Message) {
+    $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
+    Add-Content -LiteralPath $script:log -Value $line -Encoding UTF8
+    Write-Host $line
 }
 
-# 2) 위키 동기화 본 작업
-$prompt = Get-Content -Raw (Join-Path $root "Research-Vault\_wiki\SYNC-PROMPT.md")
-& $claude -p $prompt --permission-mode acceptEdits 2>&1 | Out-File $log -Append -Encoding utf8
-"[$(Get-Date)] 위키 동기화 종료 (exit=$LASTEXITCODE)" | Out-File $log -Append -Encoding utf8
-
-# 3) (GitHub 연동 시) 동기화 변경을 커밋하고, pre-sync 커밋 포함 밀린 커밋을 모두 푸시
-if (Test-Path (Join-Path $root ".git")) {
-  git add -A 2>&1 | Out-File $log -Append -Encoding utf8
-  if (git diff --cached --name-only) {
-    $stamp = Get-Date -Format "yyyy-MM-dd HH:mm"
-    git commit -m "wiki-sync: $stamp 자동 동기화" --quiet 2>&1 | Out-File $log -Append -Encoding utf8
-  }
-  if (git log origin/main..main --oneline 2>$null) {
-    git push origin main 2>&1 | Out-File $log -Append -Encoding utf8
-    "[$(Get-Date)] git push 완료" | Out-File $log -Append -Encoding utf8
-  } else {
-    "[$(Get-Date)] 푸시할 변경 없음" | Out-File $log -Append -Encoding utf8
-  }
+function Invoke-Git([string[]]$Args) {
+    $output = @(& git -C $script:root @Args 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "git $($Args -join ' ') failed" }
+    return $output
 }
 
-# 30일 지난 로그 정리
-Get-ChildItem $logDir -Filter "sync-*.log" | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-30) } | Remove-Item -Force
+function Get-Changes {
+    $rows = @(Invoke-Git @('-c', 'core.quotepath=false', 'status', '--porcelain=v1', '--untracked-files=all'))
+    $result = @()
+    foreach ($rowObject in $rows) {
+        $row = [string]$rowObject
+        if ([string]::IsNullOrWhiteSpace($row)) { continue }
+        $result += [pscustomobject]@{ Code = $row.Substring(0, 2); Path = $row.Substring(3) }
+    }
+    return $result
+}
+
+function Test-AllowedPath([string]$Path) {
+    return (
+        $Path -match '^Research-Vault/_wiki/(INDEX\.md|INGEST-LOG\.md)$' -or
+        $Path -match '^Research-Vault/_wiki/(concepts|qa)/[^/]+\.md$' -or
+        $Path -match '^Research-Vault/_data-registry/DATA-SOURCES\.md$' -or
+        $Path -match '^Research-Vault/_data-registry/sources/[^/]+\.md$'
+    )
+}
+
+try {
+    try {
+        $lockStream = [System.IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+    } catch {
+        throw "Another wiki sync is already running: $lockPath"
+    }
+
+    Write-Log "sync start (DryRun=$DryRun, SkipPush=$SkipPush)"
+    if (-not (Test-Path -LiteralPath $promptPath)) { throw "Missing prompt: $promptPath" }
+    if (-not (Test-Path -LiteralPath (Join-Path $root '.git'))) { throw 'Git repository is required' }
+
+    $branch = ([string](Invoke-Git @('branch', '--show-current') | Select-Object -First 1)).Trim()
+    if ($branch -ne 'main') { throw "Expected main branch, found $branch" }
+    if (@(Get-Changes).Count -ne 0) { throw 'Working tree must be clean' }
+
+    Invoke-Git @('fetch', '--quiet', 'origin', '+refs/heads/main:refs/remotes/origin/main') | Out-Null
+    $baseline = ([string](Invoke-Git @('rev-parse', 'HEAD') | Select-Object -First 1)).Trim()
+    $origin = ([string](Invoke-Git @('rev-parse', 'refs/remotes/origin/main') | Select-Object -First 1)).Trim()
+    if ($baseline -ne $origin) { throw 'Local main must equal origin/main' }
+    $indexTree = ([string](Invoke-Git @('write-tree') | Select-Object -First 1)).Trim()
+
+    if ($DryRun) {
+        Write-Log 'dry run passed; no Codex, commit, or push performed'
+    } else {
+        $codex = Get-Command 'codex.cmd' -ErrorAction SilentlyContinue
+        if (-not $codex) { $codex = Get-Command 'codex' -ErrorAction SilentlyContinue }
+        if (-not $codex) { throw 'Codex CLI not found' }
+
+        $prompt = Get-Content -LiteralPath $promptPath -Raw
+        $prompt | & $codex.Source exec -c service_tier=flex -C $root --sandbox workspace-write --ephemeral --color never - 2>&1 |
+            Tee-Object -FilePath $log -Append | Out-Host
+        $agentExit = $LASTEXITCODE
+        if ($agentExit -ne 0) { throw "Codex failed with exit $agentExit" }
+
+        $afterHead = ([string](Invoke-Git @('rev-parse', 'HEAD') | Select-Object -First 1)).Trim()
+        $afterIndex = ([string](Invoke-Git @('write-tree') | Select-Object -First 1)).Trim()
+        if ($afterHead -ne $baseline -or $afterIndex -ne $indexTree) { throw 'Codex changed Git HEAD or index' }
+
+        $changes = @(Get-Changes)
+        foreach ($change in $changes) {
+            if ($change.Code.Contains('D') -or $change.Code.Contains('R') -or $change.Code.Contains('C')) {
+                throw "Delete, rename, or copy is not allowed: $($change.Path)"
+            }
+            if (-not (Test-AllowedPath $change.Path)) { throw "Unexpected change: $($change.Path)" }
+        }
+
+        if ($changes.Count -eq 0) {
+            Write-Log 'no wiki changes'
+        } else {
+            Invoke-Git @('fetch', '--quiet', 'origin', '+refs/heads/main:refs/remotes/origin/main') | Out-Null
+            $originNow = ([string](Invoke-Git @('rev-parse', 'refs/remotes/origin/main') | Select-Object -First 1)).Trim()
+            if ($originNow -ne $origin) { throw 'origin/main changed during sync' }
+
+            $paths = @($changes | ForEach-Object { $_.Path } | Sort-Object -Unique)
+            foreach ($path in $paths) { Invoke-Git @('add', '--', $path) | Out-Null }
+            Invoke-Git @('commit', '-m', ('wiki-sync: ' + (Get-Date -Format 'yyyy-MM-dd HH:mm'))) | Out-Null
+            if (-not $SkipPush) { Invoke-Git @('push', 'origin', 'HEAD:refs/heads/main') | Out-Null }
+            Write-Log "committed $($paths.Count) derived files"
+        }
+    }
+} catch {
+    $exitCode = 1
+    Write-Log "failed: $($_.Exception.Message)"
+} finally {
+    if ($lockStream) { $lockStream.Dispose() }
+    Get-ChildItem -LiteralPath $logDir -Filter 'sync-*.log' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-30) } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+}
+
+exit $exitCode
