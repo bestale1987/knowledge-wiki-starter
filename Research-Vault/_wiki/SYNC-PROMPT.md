@@ -7,7 +7,7 @@
 4. INGEST-LOG에 없는 새 노트를 찾는다. **없으면** INGEST-LOG frontmatter의 `last_checked`만 오늘 날짜로 갱신하고 종료.
 5. 새 노트가 **있으면** 각 노트에 대해:
    a. 노트 전체를 읽는다.
-   b. WIKI-RULES §2 갱신 규칙에 따라 관련 개념 페이지 1~3개를 갱신한다 — 새 주장 통합, 모순이면 ⚔️로 양쪽 보존(삭제 금지), 핵심 수치 표 보강, Living Summary 재작성, frontmatter `updated`(오늘)·`sources_count` 갱신.
+   b. WIKI-RULES §2 갱신 규칙에 따라 관련 개념 페이지 1~3개를 갱신한다 — 새 주장 통합, 모순이면 ⚔️로 양쪽 보존(삭제 금지), 핵심 수치 표 보강, Living Summary 재작성, 필수 graph frontmatter 보강, `updated`(오늘)·`sources_count` 갱신. `sources_count`는 고유 원출처 수이며 같은 보고서의 중복 노트에는 `<!-- source-count: exclude -->`를 붙인다.
    c. 노트에 새 데이터 출처가 등장하면 `_data-registry/sources/`에 페이지 추가(기존이면 인용 노트만 추가)하고 `_data-registry/DATA-SOURCES.md` 마스터 테이블에 행 추가.
    d. INGEST-LOG.md 목록 끝에 `- [[노트파일명]] (통합: 오늘날짜)`를 추가.
 6. 기존 개념 페이지로 흡수가 안 되는 새 주제면 WIKI-RULES §6에 따라 신설을 검토하되 25개 상한을 지킨다. 신설하면 `_wiki/INDEX.md` 목록에도 추가.
