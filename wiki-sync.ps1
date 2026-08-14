@@ -25,8 +25,18 @@ function Write-Log([string]$Message) {
 }
 
 function Invoke-Git([string[]]$GitArgs) {
-    $output = @(& git -C $script:root @GitArgs 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw "git $($GitArgs -join ' ') failed" }
+    # Windows PowerShell 5.1 wraps native stderr as ErrorRecord objects. With
+    # the script-wide Stop policy, even a successful Git warning can throw.
+    # Lower the policy only for this native call and decide success by its exit code.
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = @(& git -C $script:root @GitArgs 2>&1)
+        $nativeExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($nativeExit -ne 0) { throw "git $($GitArgs -join ' ') failed (exit=$nativeExit)" }
     return $output
 }
 
