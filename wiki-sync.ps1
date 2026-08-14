@@ -24,9 +24,9 @@ function Write-Log([string]$Message) {
     Write-Host $line
 }
 
-function Invoke-Git([string[]]$Args) {
-    $output = @(& git -C $script:root @Args 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw "git $($Args -join ' ') failed" }
+function Invoke-Git([string[]]$GitArgs) {
+    $output = @(& git -C $script:root @GitArgs 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "git $($GitArgs -join ' ') failed" }
     return $output
 }
 
